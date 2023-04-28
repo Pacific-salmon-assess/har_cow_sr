@@ -1,0 +1,199 @@
+---
+title: "Stock-recruitment analysis for Harrison and Cowichan chinook populations"
+date: "April 2023"
+output:
+  html_document:
+  toc: true
+  toc_depth: 2
+  toc_float:
+    collapsed: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+```
+
+```{r load,  include=FALSE}
+library(here)
+library(ggplot2); 
+library(cmdstanr)
+library(samEst)
+library(cowplot)
+
+```
+
+```{r, data}
+
+stock_info<- read.csv(here::here("data/psalmon_info.csv"))
+stock_dat<-read.csv(here::here("data/psalmon_sr.csv"))
+
+
+#eg. for Cowichan chinook
+srcow<-subset(stock_dat,stock=="Cowichan"&species=="Chinook")
+srhar<-subset(stock_dat,stock=="Harrison"&species=="Chinook")
+
+
+```
+
+The goal of this document is to examine spawner-recruitment dynamics for Harrison and Cowichan Chinook Salmon populations. We fit a various forms of the Ricker curve in order to examine potential parameter trajectories for the alpha and beta parameters. 
+
+
+# Harrison Chinook 
+
+
+
+```{r fits, include=FALSE}
+hardat<-data.frame(stock=paste(srhar$stock,srhar$species),
+  by=srhar$broodyear,
+  S=srhar$spawners,
+  R=srhar$recruits,
+  logRS=log(srhar$recruits/srhar$spawners))
+
+
+p <- ricker_TMB(data=hardat) #note you might get an error here - other models might still fit though
+
+
+pac<-ricker_TMB(data=hardat, AC=TRUE)
+ptva<- ricker_rw_TMB(data=hardat,tv.par="a")
+ptvb <- ricker_rw_TMB(data=hardat,tv.par="b",sig_p_sd=1)
+ptvab <- ricker_rw_TMB(data=hardat,tv.par="both",sig_p_sd=.5)
+phmma <- ricker_hmm_TMB(data=hardat, tv.par='a')
+phmmb <- ricker_hmm_TMB(data=hardat, tv.par='b')
+phmm <- ricker_hmm_TMB(data=hardat, tv.par='both')
+
+
+
+```
+
+
+
+```{r fits, include=FALSE}
+
+x_new=seq(0,max(hardat$S)*1.5,length.out=200)
+ by_q=round(quantile(hardat$by,seq(0,1,by=0.1)))
+#static
+pred_simple=data.frame(pred=exp(p$alpha-p$beta*x_new)*x_new,
+                       x_new=x_new,
+                       gr=rep(.1,length(x_new)),
+                       model="simple")
+pred_ar1=data.frame(pred=exp(pac$alpha-pac$beta*x_new)*x_new,
+                    x_new=x_new,
+                     gr=rep(.1,length(x_new)),
+                    model="ar1")
+
+rsrwa=list()
+for(n in 1:length(by_q)){
+  rsrwa[[n]]=exp(ptva$alpha[match(by_q[n],hardat$by)]-ptva$beta*x_new)*x_new
+}
+pred_rwa=data.frame(pred=do.call(c,rsrwa),
+  x_new=x_new,
+   gr=rep(seq(0,1,by=0.1),each=length(x_new)),
+  model="rwa")
+alpha_ptva=data.frame(by=hardat$by,value=ptva$alpha,param="alpha")
+
+rsrwb=list()
+for(n in 1:length(by_q)){
+  rsrwb[[n]]=exp(ptvb$alpha-ptvb$beta[match(by_q[n],hardat$by)]*x_new)*x_new
+}
+beta_ptvb=data.frame(by=hardat$by,value=ptvb$beta,param="beta")
+pred_rwb=data.frame(pred=do.call(c,rsrwb),
+  x_new=x_new, 
+  gr=rep(seq(0,1,by=0.1),each=length(x_new)),
+  model="rwb")
+
+
+rsrwab=list()
+for(n in 1:length(by_q)){
+  rsrwab[[n]]=exp(ptvab$alpha[match(by_q[n],hardat$by)]-ptvab$beta[match(by_q[n],hardat$by)]*x_new)*x_new
+}
+beta_ptvab=data.frame(by=hardat$by,value=c(ptvab$alpha,ptvab$beta),param=rep(c("alpha","beta"),each=length(hardat$by)))
+
+pred_rwab=data.frame(pred=do.call(c,rsrwab),
+  x_new=x_new,
+  gr=rep(seq(0,1,by=0.1),each=length(x_new)),
+  model="rwab"
+  )
+            
+
+rshmma1=exp(phmma$alpha[1]-phmma$beta*x_new)*x_new
+rshmma2=exp(phmma$alpha[2]-phmma$beta*x_new)*x_new
+pred_hmma=data.frame(pred=c(rshmma1,rshmma2),
+                      x_new=x_new,
+  gr=rep(c(.1,1),each=length(x_new)),
+  model="HMMa")
+                     
+gamma_df_hmma=data.frame(by=hardat$by,gamma=phmma$probregime[2,])
+  
+rshmmb1=exp(phmmb$alpha-phmmb$beta[1]*x_new)*x_new
+rshmmb2=exp(phmmb$alpha-phmmb$beta[2]*x_new)*x_new
+pred_hmmb=data.frame(pred=c(rshmmb1,rshmmb2),
+                      x_new=x_new,
+  gr=rep(c(.1,1),each=length(x_new)),
+  model="HMMb")
+                     
+gamma_df_hmmb=data.frame(by=hardat$by,gamma=phmmb$probregime[2,])
+  
+plot(x_new,rshmmab1)
+ 
+rshmmab1=exp(phmm$alpha[1]-phmm$beta[1]*x_new)*x_new
+rshmmab2=exp(phmm$alpha[2]-phmm$beta[2]*x_new)*x_new
+pred_hmmab=data.frame(pred=c(rshmmab1,rshmmab2),
+                      x_new=x_new,
+  gr=rep(c(.1,1),each=length(x_new)),
+  model="HMMab")
+                     
+gamma_df_hmmab=data.frame(by=hardat$by,gamma=phmm$probregime[2,])
+  
+pred_har<-rbind(pred_simple,pred_ar1,pred_rwa,pred_rwb,pred_rwab,pred_hmma,pred_hmmb,pred_hmmab)
+
+```
+
+
+```{r fig1, echo = FALSE, message = FALSE, warning = FALSE, results = FALSE, 
+fig.cap = ""}
+
+#reorder model factors
+pred_har$model<-factor(pred_har$model, levels=c("rwa", "rwb", "rwab","HMMa","HMMb", "HMMab","simple", "ar1") )
+
+p<-ggplot(pred_har)+
+geom_line(aes(x=x_new,y=pred,colour = as.factor(gr)),linewidth=1.5)+
+geom_point(data=hardat, aes(x=S, y=R,alpha=by),size=1.5) +
+      scale_colour_viridis_d(name='gradient')+
+      facet_wrap(~model)+
+      xlab("Spawners") + 
+      ylab("Recruits")+
+      theme(panel.background = element_blank(),strip.background = element_rect(colour=NA, fill=NA),panel.border = element_rect(fill = NA, color = "black"),
+            strip.text = element_text(face="bold", size=12),
+            axis.text=element_text(face="bold"),axis.title = element_text(face="bold"),plot.title = element_text(face = "bold", hjust = 0.5,size=15))
+p
+
+
+```
+
+
+
+
+
+```{r fits, include=FALSE}
+
+
+
+samEst::sr_plot(df=hardat,mod=phmm,type='hmm',par='both',form='tmb',title=hardat$stock)
+
+
+
+```
+
+
+
+
+- plot of resulting curves
+- plot of param tarjectories
+- AIC/BIC model selection
+
+
+
+
+
