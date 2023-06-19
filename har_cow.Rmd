@@ -21,6 +21,7 @@ library(ggplot2);
 library(cmdstanr)
 library(samEst)
 library(cowplot)
+library(knitr)
 
 ```
 
@@ -44,7 +45,7 @@ The goal of this document is to examine spawner-recruitment dynamics for Harriso
 
 
 
-```{r fits, include=FALSE}
+```{r fits, include=FALSE,echo=T, results='hide'}
 hardat<-data.frame(stock=paste(srhar$stock,srhar$species),
   by=srhar$broodyear,
   S=srhar$spawners,
@@ -52,7 +53,7 @@ hardat<-data.frame(stock=paste(srhar$stock,srhar$species),
   logRS=log(srhar$recruits/srhar$spawners))
 
 
-p <- ricker_TMB(data=hardat) #note you might get an error here - other models might still fit though
+psimple <- ricker_TMB(data=hardat) #note you might get an error here - other models might still fit though
 
 
 pac<-ricker_TMB(data=hardat, AC=TRUE)
@@ -69,12 +70,12 @@ phmm <- ricker_hmm_TMB(data=hardat, tv.par='both')
 
 
 
-```{r fits, include=FALSE}
+```{r preds, include=FALSE}
 
 x_new=seq(0,max(hardat$S)*1.5,length.out=200)
  by_q=round(quantile(hardat$by,seq(0,1,by=0.1)))
 #static
-pred_simple=data.frame(pred=exp(p$alpha-p$beta*x_new)*x_new,
+pred_simple=data.frame(pred=exp(psimple$alpha-psimple$beta*x_new)*x_new,
                        x_new=x_new,
                        gr=rep(.1,length(x_new)),
                        model="simple")
@@ -135,7 +136,7 @@ pred_hmmb=data.frame(pred=c(rshmmb1,rshmmb2),
                      
 gamma_df_hmmb=data.frame(by=hardat$by,gamma=phmmb$probregime[2,])
   
-plot(x_new,rshmmab1)
+
  
 rshmmab1=exp(phmm$alpha[1]-phmm$beta[1]*x_new)*x_new
 rshmmab2=exp(phmm$alpha[2]-phmm$beta[2]*x_new)*x_new
@@ -151,13 +152,11 @@ pred_har<-rbind(pred_simple,pred_ar1,pred_rwa,pred_rwb,pred_rwab,pred_hmma,pred_
 ```
 
 
-```{r fig1, echo = FALSE, message = FALSE, warning = FALSE, results = FALSE, 
-fig.cap = ""}
-
+```{r , echo = FALSE, message = FALSE, warning = FALSE, results = FALSE, fig.cap = "Figure 1 Model predictions. Top row indicate random walk models. Middle row regime shift models and bottom row conatin the stationary models with and withour autocorrelated residuals."}
 #reorder model factors
 pred_har$model<-factor(pred_har$model, levels=c("rwa", "rwb", "rwab","HMMa","HMMb", "HMMab","simple", "ar1") )
 
-p<-ggplot(pred_har)+
+ggplot(pred_har)+
 geom_line(aes(x=x_new,y=pred,colour = as.factor(gr)),linewidth=1.5)+
 geom_point(data=hardat, aes(x=S, y=R,alpha=by),size=1.5) +
       scale_colour_viridis_d(name='gradient')+
@@ -167,20 +166,45 @@ geom_point(data=hardat, aes(x=S, y=R,alpha=by),size=1.5) +
       theme(panel.background = element_blank(),strip.background = element_rect(colour=NA, fill=NA),panel.border = element_rect(fill = NA, color = "black"),
             strip.text = element_text(face="bold", size=12),
             axis.text=element_text(face="bold"),axis.title = element_text(face="bold"),plot.title = element_text(face = "bold", hjust = 0.5,size=15))
-p
-
-
 ```
 
 
 
 
 
-```{r fits, include=FALSE}
+
+
+```{r paramtrends, include=FALSE}
+
+dfpar<-data.frame(by=rep(hardat$by,16),
+                  value=c(
+                    rep(psimple$alpha,length(hardat$by)),
+                    rep(pac$alpha,length(hardat$by)),
+                    ptva$alpha,
+                    rep(ptvb$alpha,length(hardat$by)),
+                    ptvab$alpha,
+                    phmma$alpha[phmma$regime],
+                    rep(phmmb$alpha,length(hardat$by)),
+                    phmm$alpha[phmm$regime],
+                    1/rep(psimple$beta,length(hardat$by)),
+                    1/rep(pac$beta,length(hardat$by)),
+                          1/rep(ptva$beta,length(hardat$by)),
+                          1/ptvb$beta,
+                          1/ptvab$beta,
+                          1/rep(phmma$beta,length(hardat$by)),
+                          1/phmmb$beta[phmmb$regime],
+                          1/phmm$beta[phmm$regime]),
+                    param=rep(c("log_a","Smax"), each=length(hardat$by)*8),
+                    model=factor(rep(rep(c("simple","AR1","RWa","RWb","RWab",
+                                "Shifta","Shiftb","Shiftab"),2),each=length(hardat$by)),
+                                levels=c("simple","AR1","RWa","RWb","RWab",
+                                         "Shifta","Shiftb","Shiftab")))
 
 
 
-samEst::sr_plot(df=hardat,mod=phmm,type='hmm',par='both',form='tmb',title=hardat$stock)
+
+
+
 
 
 
@@ -188,6 +212,22 @@ samEst::sr_plot(df=hardat,mod=phmm,type='hmm',par='both',form='tmb',title=hardat
 
 
 
+```{r harfig2, echo = FALSE, message = FALSE, warning = FALSE, results = FALSE, fig.cap = "Parameter trajectories for stationary and time varying models considered"}
+
+ggplot(dfpar) +   
+  geom_line(aes(x=by,y=value,color=by ),
+            size=1.4) +  
+  mytheme+ 
+  ylab("parameters") +
+  xlab("year") +
+  facet_grid(param~model, scales="free_y")+
+  scale_color_viridis_c(begin=.1, end=.8, guide="none")+
+  theme(axis.text.x = element_text(angle = 45, hjust=1, vjust=1))
+
+
+
+
+```
 
 - plot of resulting curves
 - plot of param tarjectories
@@ -195,5 +235,26 @@ samEst::sr_plot(df=hardat,mod=phmm,type='hmm',par='both',form='tmb',title=hardat
 
 
 
+```{r, message = FALSE}
+df<-data.frame(model=c("simple","AR1","RW a","RW b","RW a and b",
+                    "Shift a","Shif b","Shift a and b"),
+           "delta AIC"=c(psimple$AICc, pac$AICc,
+                 ptva$AICc,ptvb$AICc, ptvab$AICc,
+                 phmma$AICc,phmmb$AICc, phmm$AICc)-min(
+                c(psimple$AICc, pac$AICc,
+                     ptva$AICc,ptvb$AICc, ptvab$AICc,
+                     phmma$AICc,phmmb$AICc, phmm$AICc)),
+           "delta BIC"=c(psimple$BIC, pac$BIC,
+                 ptva$BIC,ptvb$BIC, ptvab$BIC,
+                 phmma$BIC,phmmb$BIC, phmm$BIC)-
+             min(c(psimple$BIC, pac$BIC,
+                   ptva$BIC,ptvb$BIC, ptvab$BIC,
+                   phmma$BIC,phmmb$BIC, phmm$BIC)),
+              convergence=c(psimple$conv_problem, pac$conv_problem,
+                            ptva$conv_problem,ptvb$conv_problem, ptvab$conv_problem,
+                            phmma$conv_problem,phmmb$conv_problem, phmm$conv_problem))
+kable(df, caption="Model selection criteria and convergence diagnostocs for models fit to harrison data.")
+
+```
 
 
